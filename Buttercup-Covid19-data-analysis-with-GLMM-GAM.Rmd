@@ -1,0 +1,251 @@
+---
+title: "Assignment2-446-Meng Gao"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(visdat)
+library(ggplot2)
+library(lme4)
+library(nlme)
+library(gam)
+```
+
+## Introduction
+In this report, we analyze two datasets. The Buttercup dataset looks at the efficacy of different herbicides and management of pasture on the weed, giant buttercup (Ranunculus Acris), growth in dairy pastures, and we will be fitting  linear mixed using an interaction term and deciding if it is useful for explaining the varianc. We also fit a generalized linear mixed model and compare it with a generalized linear model to see  if the interaction term should be treated with random or fixed effects. On the Covid cases dataset, we will fit generalized additive models for new_cases with different smoothing parameters and compare these models to choose the 'best' one. 
+
+## QUESTION 1 FITTING A LINEAR MIXED MODEL
+We start by importing and cleansing the data and drawing some graphs to show the important features.
+```{r q1-1import}
+buttercup <- read.csv("/Charlotte/shepherding/446GLM/assignment2/Buttercup\ Data.csv")
+str(buttercup) 
+summary(buttercup)
+```
+Looking at the summary can see that the dataset is almost balanced (counts are equal in each of the variety levels and block levels except the "Other" variable).
+Let's check if there is any missing values and remove them if there is any. 
+```{r pressure, echo=FALSE}
+vis_dat(buttercup) +
+  ggtitle("Missing Value Distribution")
+```
+
+As can be seen in the missing value distrubition plot, there appears to be a missing pattern.
+
+We check out the missing value distribution again after omitting the missing values. 
+```{r remove missingness, echo=FALSE}
+buttercup=na.omit(buttercup)
+vis_dat(buttercup) +
+  ggtitle("Missing Value Distribution")
+```
+
+We can also embed one dimensional scatter plots  of the given data. 
+```{r stripchart1, echo=FALSE}
+stripchart(Buttercuppc~Herbicide, xlab="Buttercuppc", ylab="Herbicide",data=buttercup)
+```
+```{r stripchart2, echo=FALSE}
+stripchart(Buttercuppc~Mow, xlab="Buttercuppc", ylab="Mow",data=buttercup)
+```
+
+The scatterplots show that it does not make much difference if the pasture is mown or not, all herbicides work for buttercup but the affects can be significantly different. 
+
+Before we fit any models, we plot a histogram of the response variable (Buttercuppc) to check how it distributes and will need to consider a suitable transformation for it if it is not normal distribution.
+```{r histogram1, echo=FALSE}
+hist(buttercup$Buttercuppc)
+```
+
+We will add a small amount to the zeros and  then take logs, this avoids the issue of the log of zero being undefined.
+```{r q1-2 histogram2, echo=FALSE}
+hist(log(buttercup$Buttercuppc+0.1))
+```
+
+The distrubution  after log transformation looks fine, now we generate a new variable which is the interaction between the Farm and Paddock variables. 
+```{r interaction, echo=FALSE}
+buttercup$FarmPaddock=interaction(buttercup$Farm,buttercup$Paddock)
+```
+
+Now we fit a simple analysis of variance model to the data including the interaction between Herbicide and Mow and a term for the Farm and Paddock as above.
+
+```{r q1-3 aovov, echo=FALSE}
+aovov <- aov(log(buttercup$Buttercuppc+0.1)~Herbicide*Mow+FarmPaddock,data=buttercup)
+summary(aovov)
+#coef(aovov)
+```
+From the summary of ANOVA, we can see that there is a significant difference between all the independent terms used for the model, as all the p-values are less than 0.05.
+
+Now we fit a random effects model with the Farm by Paddock variable as the random effect and fixed effects for mowing and herbicides and their interaction in the model.
+```{r q1-5 random effects model, echo=FALSE}
+lmmov=lmer(log(buttercup$Buttercuppc+0.1)~ Herbicide*Mow + (1|FarmPaddock), data = buttercup)
+slmmov <- summary(lmmov)
+slmmov
+```
+
+The Farm by Paddock term explains a lot about the total variability. 
+By comparing the Farm by Paddock effect to the  residual in the ANOVA model in 3, We can know that the random effects the sums of squares accounted for by Farm by Paddock effect is 546.6(21.30%), while the residual sum of squares  accounts for 740.6(28.87%).
+Looking at the random effects the variance accounted for by Farm by Paddock is 0.6920 (42.28%), while the residual variance(variance un-accounted for by the model) is 0.9447(55.72%).  
+
+We would also be checking  normality of the random effects. 
+```{r q1-6b, echo=FALSE}
+#plot(fitted(lmmov), resid(lmmov), xlab = "Fitted", ylab = "Residuals")
+#abline(0, 0)
+qqnorm(ranef(lmmov)$FarmPaddock[[1]], main = "FarmPaddock effects")
+```
+
+Looking at the Q-Q plot we can see approximate normality in FarmPaddock. 
+
+## Ducussion of Question1 
+
+We cleanse the data by deleting the null variables and draw stripcharts to explore the relationships between Buttercuppc and Herbicide or Mow. We log transform the response variable to make sure it is approximate normal distribution. We then gererate an interaction term of Farm and Paddock and fit a simple analysis of variance model and a random effects model with this included. By looking at the summary oututs of these two models, we find this interaction term explains a useful amount of the variablity. 
+
+## QUESTION 2 FITTING A GENERALISED LINEAR MIXED MODEL
+We first examine the relationship between BareGrnd and Paddock individually for Farm, using the xyplot() function. Looking at this plot, there are some farms that have more variability than others, there is also variability for dry and wet farms. 
+
+```{r q2-a xyplot, echo=FALSE}
+library(lattice)
+xyplot(BareGrnd~Farm|Paddock, data=buttercup)
+```
+
+We now look at the stripchart for the interaction variable. This plot shows that for different levels in the interaction term, BareGrnd is significantly different, it makes sense to include the interaction term in the model.
+```{r q2-1b stripchart, echo=FALSE}
+stripchart(buttercup$BareGrnd~FarmPaddock, xlab="BareGrnd", ylab="FarmPaddock",,data=buttercup)
+```
+
+We now fit a Generalised Linear model to the data with fixed effects for both Mow and Herbicide and their interaction and a term for the Farm by Paddock interaction. As it  says in the question, we can approximate this variable as an unbounded count so we can assume the response variable is  poisson distribution. 
+
+```{r q2-2, echo=FALSE}
+#log(buttercup$BareGrnd+1)
+glm1=glm(buttercup$BareGrnd ~ Herbicide*Mow + FarmPaddock,family=poisson,data=buttercup)
+summary(glm1)
+```
+
+```{r q2-3, echo=FALSE}
+#log(buttercup$BareGrnd+1)
+glm2=glmer(buttercup$BareGrnd ~ Herbicide*Mow + (1|FarmPaddock),family=poisson,data=buttercup)
+summary(glm2)
+```
+We compare the two models by model performances and AIC. Looking at the diagnostic plots, we cannot tell too much difference from the two models, and all the plots look fine, which also means they do not violate the  model asuumptions.
+```{r q2-4a, echo=FALSE}
+par(mfrow=c(2,2))
+qqnorm(resid(glm1),main="residual plot")
+hist(resid(glm1),main="histogram of residuals")
+plot(fitted(glm1),resid(glm1),xlab="fitted",ylab="residuals")
+abline(0,0)
+```
+
+```{r q2-4b, echo=FALSE}
+par(mfrow=c(2,2))
+qqnorm(resid(glm2),main="residual plot")
+hist(resid(glm2),main="histogram of residuals")
+plot(fitted(glm2),resid(glm2),xlab="fitted",ylab="residuals")
+abline(0,0)
+```
+
+We then  compare the models with anova() function. 
+```{r q2-4c, echo=FALSE}
+anova(glm2,glm1,test="Chisq")
+```
+We can see that the first model has a lower AIC and a lower deviance and the p-value for it is significant, which means it performs better than the other one.
+Comparing the outputs of the models, we can say all the predictor terms (Herbicide, Mow and FarmPaddock) we used to fit the models are useful for prediction and both of the  two models perform fine as they do not violate any model assumptions. However, when we treat the Farm by Paddock interaction with fixed effects, the model performs slightly better.  
+
+```{r q2-6, echo=FALSE}
+lm=aov(log(buttercup$BareGrnd+1)~Herbicide*Mow + FarmPaddock,data=buttercup)
+summary(lm)
+```
+
+## Discussion of Question2
+
+Similarly in question 2, we get the conclusion that Farm by Paddock effects is necessary by looking at a few plots of the data, then we fit a Generalised Linear model and a Generalised Linear model. Comparing the two models, we find out the generalised linear model performs slightly  better.
+
+## QUESTION 3 FITTING A GENERALISED ADDITIVE MODEL
+
+We start by loading the dataset, extract the Denmark data and change the date variable to an R date variable. We can check out the first six observations in the Denmark data.
+```{r q3-0, echo=FALSE}
+library(date)
+covid=read.csv("/Charlotte/shepherding/446GLM/assignment2/owid-covid-data.csv")
+covid_d=covid[covid$location=="Denmark",]
+covid_d$date <- as.Date(covid_d$date) 
+head(covid_d)
+```
+We now draw graphs for each of the total_cases and new_cases vs date. 
+```{r q3-1a, echo=FALSE}
+plot(total_cases~date,data=covid_d)
+```
+```{r q3-1b, echo=FALSE}
+plot(new_cases~date,data=covid_d)
+```
+
+As can be seen in these two plots, both total_cases and new_cases remain zero till March, following an increase, but the new_cases drops in April. The relationships of cases and time are not linear, we might use a GAM to model the response. 
+
+For new_cases series we fit a generalized additive model (GAM) using the gam package with spar = 0.1, 0.3, 0.5, 0.7 and 0.9 values, we then plot the data and each of the fitted model. 
+
+```{r q3-2-1, echo=FALSE}
+model01 <- gam(new_cases ~ s(date, spar=0.1), data=covid_d)
+summary(model01)
+```
+
+```{r q3-2-1b, echo=FALSE}
+covid_d$fits01 <- fitted(model01)
+Plot01 <- ggplot(covid_d, aes(x=date, y=new_cases)) + geom_point()
+Plot01 <- Plot01 + geom_line(aes(x=date, y=fits01))
+Plot01
+```
+
+```{r q3-2-3, echo=FALSE}
+model03 <- gam(new_cases ~ s(date, spar=0.3), data=covid_d)
+summary(model03)
+```
+
+```{r q3-2-3b, echo=FALSE}
+covid_d$fits03 <- fitted(model03)
+Plot03 <- ggplot(covid_d, aes(x=date, y=new_cases)) + geom_point()
+Plot03 <- Plot03 + geom_line(aes(x=date, y=fits03))
+Plot03
+```
+
+```{r q3-2-5, echo=FALSE}
+model05 <- gam(new_cases ~ s(date, spar=0.5), data=covid_d)
+summary(model05)
+```
+
+```{r q3-2-5b, echo=FALSE}
+covid_d$fits05 <- fitted(model05)
+Plot05 <- ggplot(covid_d, aes(x=date, y=new_cases)) + geom_point()
+Plot05 <- Plot05 + geom_line(aes(x=date, y=fits05))
+Plot05
+```
+
+```{r q3-2-7, echo=FALSE}
+model07 <- gam(new_cases ~ s(date, spar=0.7), data=covid_d)
+summary(model07)
+```
+
+```{r q3-2-7b, echo=FALSE}
+covid_d$fits07 <- fitted(model07)
+Plot07 <- ggplot(covid_d, aes(x=date, y=new_cases)) + geom_point()
+Plot07 <- Plot07 + geom_line(aes(x=date, y=fits07))
+Plot07
+```
+```{r q3-2-9, echo=FALSE}
+model09 <- gam(new_cases ~ s(date, spar=0.9), data=covid_d)
+summary(model09)
+```
+
+```{r q3-2-9b, echo=FALSE}
+covid_d$fits09 <- fitted(model09)
+Plot09 <- ggplot(covid_d, aes(x=date, y=new_cases)) + geom_point()
+Plot09 <- Plot09 + geom_line(aes(x=date, y=fits09))
+Plot09
+```
+
+Having all the models fitted and the fitted data plotted, we can see as the spar values(smoothing parameters) increase, models tend to better smooth the data and demonstrate general trends. In each model the p-values for parametric effects and nonparametric effects are significant. 
+
+For the very first model, there is 1282875(98.15%) accounted for the R-squared, the plot almost joints dots together and does not smooth or show any trend, therefore it does not seem to be a good choice. 
+When the spar value is 0.3, the plot captures the general trend and there is 1282875(96.68%) accounted for the R-squared. 
+Moving to a spar value of 0.5,the plot captures the general trend and appears to be smooth. There is 1282875(93.30%) accounted for the R-squared. 
+When the smoothing parameter is 0.7, there is 1282875(87.63%) accounted for the R-squared and the plot fails to capture enough information of the data, therefore it does not seem to be a good choice either.  
+When we have the largest smoothing parameter, the plot looks similar to a quardratic regression plot, which means it is too smooth to give us enough information of the data. Also, there is only 81.76% accounted for the R-squared, which makes it a bad choice. 
+
+In this case, l would say the 'best' smoothing value for this dataset should be somewhere between 0.3 and 0.5 and it might be closer to 0.5, as we want the proportion of R-squared to be as big as possible. We also need the plot to capture the general trend and provide enougn information at the same time. 
+
+##  Discussion of Question3
+
+In this question, we investigate the covid cases for Denmark dataset. We explore the data by plotting total_cases and new_cases against time, this gives us a better idea of what kind of model can be appropriate. We then fit the data with generalized additive modoels using different smoothing parameters, compare the summary outputs and plots to choose the one that performs 'best' in this case. 
